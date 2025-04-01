@@ -27,25 +27,44 @@
 #include "word_count.h"
 
 void init_words(word_count_list_t* wclist) { /* TODO */
+  list_init(wclist);
 }
 
 size_t len_words(word_count_list_t* wclist) {
   /* TODO */
-  return 0;
+  return list_size(wclist);
 }
 
 word_count_t* find_word(word_count_list_t* wclist, char* word) {
   /* TODO */
+  struct list_elem *e;
+  for(e=list_begin(wclist);e!=list_end(wclist);e=list_next(e)){
+    struct word_count *wc_ptr=list_entry(e,struct word_count,elem);
+    if(strcmp(word,wc_ptr->word)==0)return wc_ptr;
+  }
   return NULL;
 }
 
 word_count_t* add_word(word_count_list_t* wclist, char* word) {
   /* TODO */
-  return NULL;
+  word_count_t* wc_ptr=find_word(wclist,word);
+  if(wc_ptr!=NULL)++wc_ptr->count;
+  else {
+    wc_ptr=(word_count_t*)malloc(sizeof(word_count_t));
+    wc_ptr->count=1;
+    wc_ptr->word=word;
+    list_push_front(wclist,&wc_ptr->elem);
+  }
+  return wc_ptr;
 }
 
 void fprint_words(word_count_list_t* wclist, FILE* outfile) {
   /* TODO */
+  struct list_elem *e;
+  for(e=list_begin(wclist);e!=list_end(wclist);e=list_next(e)){
+    struct word_count *wc_ptr=list_entry(e,struct word_count,elem);
+    fprintf(outfile,"%i\t%s\n",wc_ptr->count,wc_ptr->word);
+  }
   /* Please follow this format: fprintf(<file>, "%i\t%s\n", <count>, <word>); */
 }
 

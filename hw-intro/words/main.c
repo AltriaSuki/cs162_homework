@@ -46,7 +46,10 @@ WordCount *word_counts = NULL;
  */
 int num_words(FILE* infile) {
   int num_words = 0;
-
+  char ch;
+  while((ch=fgetc(infile)!=EOF)){
+    if(!isalpha(ch))num_words++;
+  }
   return num_words;
 }
 
@@ -62,6 +65,9 @@ int num_words(FILE* infile) {
  * and 0 otherwise.
  */
 int count_words(WordCount **wclist, FILE *infile) {
+  if(wclist==NULL || infile==NULL)return 1;
+  
+  
   return 0;
 }
 

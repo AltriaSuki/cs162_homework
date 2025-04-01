@@ -34,6 +34,8 @@ Mutators take a reference to a list as first arg.
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/types.h>
+
 
 /* Representation of a word count object.
    Includes next field for constructing singly linked list*/

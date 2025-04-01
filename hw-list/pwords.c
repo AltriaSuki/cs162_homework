@@ -32,6 +32,23 @@
 #include "word_count.h"
 #include "word_helpers.h"
 
+typedef struct thread_arg{
+  char * filename;
+  word_count_list_t* word_counts;
+}thread_arg;
+
+void* thread_fun(void* arg){
+  thread_arg* args=(thread_arg*)arg;
+  FILE* file=fopen(args->filename,"r");
+  if (!file) {
+    fprintf(stderr, "Error opening file: %s\n", args->filename);
+    return NULL;
+  }
+  count_words(args->word_counts,file);
+  fclose(file);
+  free(args);
+  return NULL;
+}
 /*
  * main - handle command line, spawning one thread per file.
  */
@@ -45,10 +62,26 @@ int main(int argc, char* argv[]) {
     count_words(&word_counts, stdin);
   } else {
     /* TODO */
+    pthread_t threads[argc-1];
+    for(int i=1;i<argc;i++){
+      thread_arg* arg=(thread_arg*)malloc(sizeof(thread_arg));
+      arg->filename=argv[i];
+      arg->word_counts=&word_counts;
+      pthread_create(&threads[i-1], NULL, thread_fun, arg);
+    }
+    for(int i=1;i<argc;i++){
+      pthread_join(threads[i-1], NULL);
+    }
   }
+  
 
   /* Output final result of all threads' work. */
   wordcount_sort(&word_counts, less_count);
   fprint_words(&word_counts, stdout);
   return 0;
 }
+
+
+real    0m31.879s
+user    0m31.830s
+sys     0m0.027s
