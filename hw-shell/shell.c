@@ -148,12 +148,15 @@ int main(unused int argc, unused char* argv[]) {
       const char* redirection_output=NULL;
       size_t redirection_input_index=0;
       size_t redirection_output_index=0;
+      bool has_redirection_input=false;
+      bool has_redirection_output=false;
       size_t length=tokens_get_length(tokens);
       for(size_t i=0;i<length;++i){
         char *token=tokens_get_token(tokens,i);
         if(strcmp(token,">")==0){
           redirection_output=tokens_get_token(tokens,i+1);
           redirection_output_index=i;
+          has_redirection_output=true;
           if(redirection_output==NULL){
             perror("redirection: error");
             return -1;
@@ -162,12 +165,13 @@ int main(unused int argc, unused char* argv[]) {
         if(strcmp(token,"<")==0){
           redirection_input=tokens_get_token(tokens,i+1);
           redirection_input_index=i;
+          has_redirection_input=true;
           if(redirection_input==NULL){
             perror("redirection: error");
             return -1;
           }
         }
-        if(redirection_input_index!=0&&redirection_output_index!=0){
+        if(has_redirection_input&&has_redirection_output){
           break;
         }
       }
