@@ -200,11 +200,7 @@ void init_shell() {
 int main(unused int argc, unused char* argv[]) {
   init_shell();
   disable_echoctl();
-  struct sigaction sa;
-  sa.sa_handler = SIG_IGN;
-  sigemptyset(&sa.sa_mask);
-  sa.sa_flags = 0;
-  sigaction(SIGTSTP, &sa, NULL);//
+  signal(SIGTSTP,SIG_IGN);
   static char line[4096];
   // int line_num = 0;
 
@@ -317,6 +313,13 @@ int main(unused int argc, unused char* argv[]) {
       for(size_t i=0;i<pipe_count+1;++i){
         pid[i]=fork();
         if(pid[i]==0){
+          // setpgid(0,0);
+          // if(setsid()==-1){
+          //   perror("setsid: error");
+          //   exit(1);
+          // }
+
+          // signal(SIGTSTP,SIG_DFL);
           if(i==0){
             if(redirection_input!=NULL){
               int fd_in=open(redirection_input,O_RDONLY);
@@ -363,7 +366,9 @@ int main(unused int argc, unused char* argv[]) {
           perror("execv: error");
           exit(1);
         }else if(pid[i]>0){
-          waitpid(pid[i],NULL,0);
+          // waitpid(pid[i],NULL,0);
+          // setpgid(pid[i],pid[i]);
+          // tcsetpgrp(STDIN_FILENO,pid[i]);
         }else{
           perror("fork: error");
           return -1;
@@ -371,6 +376,12 @@ int main(unused int argc, unused char* argv[]) {
 
 
       }
+
+      for(size_t i=0;i<pipe_count+1;++i){
+        waitpid(pid[i],NULL,0);
+      }
+      tcgetpgrp(STDIN_FILENO);
+      // signal(SIGTSTP,SIG_IGN);
       //fork实际上是复制了父进程的所有文件描述符，不会影响到父进程
       //关闭父进程的管道文件描述符
       for(size_t i=0;i<pipe_count;++i){
@@ -380,6 +391,9 @@ int main(unused int argc, unused char* argv[]) {
       for(size_t i = 0;i<pipe_count+1;++i){
         free(args[i][0]);
       }
+
+      //收回终端控制权
+      // tcsetpgrp(0,getpid());
     }
 
     if(getcwd(current_dir, PATH_MAX)==NULL){
