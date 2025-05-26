@@ -25,12 +25,27 @@ bool shell_is_interactive;
 /* File descriptor for the shell input */
 int shell_terminal;
 
+char current_dir[PATH_MAX];
+
 /* Terminal mode settings for the shell */
 struct termios shell_tmodes;
 
 /* Process group id for the shell */
 pid_t shell_pgid;
 
+void disable_echoctl(){
+  struct termios term;
+  tcgetattr(STDIN_FILENO,&term);
+  term.c_lflag &=~ ECHOCTL; //关闭echoctl
+  tcsetattr(STDIN_FILENO,TCSANOW,&term);
+}
+
+void enable_echoctl(){
+  struct termios term;
+  tcgetattr(STDIN_FILENO,&term);
+  term.c_lflag |= ECHOCTL; //开启echoctl
+  tcsetattr(STDIN_FILENO,TCSANOW,&term);
+}
 
 int cmd_exit(struct tokens* tokens);
 int cmd_help(struct tokens* tokens);
@@ -184,13 +199,22 @@ void init_shell() {
 
 int main(unused int argc, unused char* argv[]) {
   init_shell();
-
+  disable_echoctl();
+  struct sigaction sa;
+  sa.sa_handler = SIG_IGN;
+  sigemptyset(&sa.sa_mask);
+  sa.sa_flags = 0;
+  sigaction(SIGTSTP, &sa, NULL);//
   static char line[4096];
-  int line_num = 0;
+  // int line_num = 0;
 
+  if(getcwd(current_dir,PATH_MAX)==NULL){
+    perror("getcwd: error");
+    return -1;
+  }
   /* Please only print shell prompts when standard input is not a tty */
   if (shell_is_interactive)
-    fprintf(stdout, "%d: ", line_num);
+    fprintf(stdout, "%s$ ", current_dir);
 
   while (fgets(line, 4096, stdin)) {
     /* Split our line into words. */
@@ -201,7 +225,10 @@ int main(unused int argc, unused char* argv[]) {
 
     if (fundex >= 0) {
       cmd_table[fundex].fun(tokens);
-    }else {
+    }else if(tokens_get_token(tokens,0)==NULL){
+
+    } 
+    else{
       /* REPLACE this to run commands as programs. */
       // fprintf(stdout, "This shell doesn't know how to run programs.\n");
       //应该先从当前目录下找可执行文件
@@ -267,36 +294,6 @@ int main(unused int argc, unused char* argv[]) {
       }
       }
       
-      // for(size_t i=0;i<length;++i){
-      //   char *token=tokens_get_token(tokens,i);
-      //   if(strcmp(token,">")==0){
-      //     redirection_output=tokens_get_token(tokens,i+1);
-      //     redirection_output_index=i;
-      //     has_redirection_output=true;
-      //     if(redirection_output==NULL){
-      //       perror("redirection: error");
-      //       return -1;
-      //     }
-      //   }
-      //   if(strcmp(token,"<")==0){
-      //     redirection_input=tokens_get_token(tokens,i+1);
-      //     redirection_input_index=i;
-      //     has_redirection_input=true;
-      //     if(redirection_input==NULL){
-      //       perror("redirection: error");
-      //       return -1;
-      //     }
-      //   }
-      //   if(has_redirection_input&&has_redirection_output){
-      //     break;
-      //   }
-      // }
-      // if(has_redirection_input){
-      //   length-=2;
-      // }
-      // if(has_redirection_output){
-      //   length-=2;
-      // }
       int pipe_fd[pipe_count+1][2];//防止pipe_count为0时出现错误
       for(size_t i=0;i<pipe_count;++i){
         if(pipe(pipe_fd[i])==-1){
@@ -305,10 +302,7 @@ int main(unused int argc, unused char* argv[]) {
         }
       }
       pid_t pid[pipe_count+1];
-      // for(size_t i=0;i<length;i++){
-      //   args[i]=tokens_get_token(tokens,i);
-      // }
-      // args[length]=NULL;
+
       for(size_t i=0;i<pipe_count+1;++i){
         args[i][0]=find_true_path(args[i][0]);
         if(args[i][0]==NULL){
@@ -345,8 +339,6 @@ int main(unused int argc, unused char* argv[]) {
             }
             if(pipe_count!=0){
               dup2(pipe_fd[i][1],STDOUT_FILENO);
-              //关闭管道的读端
-              // close(pipe_fd[i][0]);
             }
           }else if(i==pipe_count){
             if(redirection_output!=NULL){
@@ -359,15 +351,9 @@ int main(unused int argc, unused char* argv[]) {
               close(fd_out);
             }
             dup2(pipe_fd[i-1][0],STDIN_FILENO);
-            //关闭管道的写端
-            // close(pipe_fd[i-1][1]);
           }else{
             dup2(pipe_fd[i-1][0],STDIN_FILENO);
             dup2(pipe_fd[i][1],STDOUT_FILENO);
-            //关闭上一个管道的写端
-            // close(pipe_fd[i-1][1]);
-            //关闭当前管道的读端
-            // close(pipe_fd[i][0]);
           }
         for(size_t j=0;j<pipe_count;++j){
           if(j!=i-1)close(pipe_fd[j][0]);
@@ -382,48 +368,28 @@ int main(unused int argc, unused char* argv[]) {
           perror("fork: error");
           return -1;
         }
+
+
       }
-
-            // pid_t pid=fork();
-            // if(pid==0){
-
-            //   if(redirection_input!=NULL){
-            //     int fd_in=open(redirection_input,O_RDONLY);
-            //     if(fd_in==-1){
-            //       perror("open: error");
-            //       exit(1);
-            //     }
-            //     dup2(fd_in,STDIN_FILENO);
-            //     close(fd_in);
-            //   }
-            //   if(redirection_output!=NULL){
-            //     int fd_out=open(redirection_output,O_WRONLY|O_CREAT|O_TRUNC,0644);
-            //     if(fd_out==-1){
-            //       perror("open: error");
-            //       exit(1);
-            //     }
-            //     dup2(fd_out,STDOUT_FILENO);
-            //     close(fd_out);
-            //   }
-            //   execv(args[0],args);
-            //   perror("execv: error");
-            //   exit(1);
-            // }else if(pid>0){
-            //   waitpid(pid,NULL,0);
-            // }else{
-            //   perror("fork: error");
-            //   return -1;
-            // }
+      //fork实际上是复制了父进程的所有文件描述符，不会影响到父进程
+      //关闭父进程的管道文件描述符
+      for(size_t i=0;i<pipe_count;++i){
+        close(pipe_fd[i][0]);
+        close(pipe_fd[i][1]);
+      }
       for(size_t i = 0;i<pipe_count+1;++i){
         free(args[i][0]);
       }
     }
 
-    
+    if(getcwd(current_dir, PATH_MAX)==NULL){
+      perror("getcwd: error");
+      return -1;
+    }
     end_of_while:
     if (shell_is_interactive)
       /* Please only print shell prompts when standard input is not a tty */
-      fprintf(stdout, "%d: ", ++line_num);
+      fprintf(stdout, "%s$ ", current_dir);
 
     /* Clean up memory */
     tokens_destroy(tokens);
