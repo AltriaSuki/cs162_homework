@@ -16,6 +16,8 @@
 /* Convenience macro to silence compiler warnings about unused function parameters. */
 #define unused __attribute__((unused))
 #define PATH_MAX 2048
+#define PIPE_MAX 2048
+#define STRING_BUFFER_SIZE 4096
 
 /* Whether the shell is connected to an actual terminal or not. */
 bool shell_is_interactive;
@@ -34,6 +36,8 @@ int cmd_exit(struct tokens* tokens);
 int cmd_help(struct tokens* tokens);
 int cmd_pwd(struct tokens* tokens);
 int cmd_cd(struct tokens* tokens);
+
+char* find_true_path(char* cmd);
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens* tokens);
@@ -83,6 +87,65 @@ int cmd_cd(struct tokens* tokens){
     return -1;
   }
   return 1;
+}
+
+char* find_true_path(char* cmd){
+  char pwd_path[PATH_MAX];
+  if(getcwd(pwd_path,PATH_MAX)==NULL){
+    perror("getcwd: error");
+    return NULL;
+  }
+
+  bool is_absulute=false;
+  if(access(cmd,X_OK)==0){
+    is_absulute=true;
+  }
+
+  bool is_found=false;
+  if(!is_absulute){
+        //首先从当前目录下找可执行文件
+    char _full_path[2*PATH_MAX];
+    snprintf(_full_path,2*PATH_MAX,"%s/%s",pwd_path,cmd);
+    if(access(_full_path,X_OK)==0){
+      is_found=true;
+      cmd=_full_path;
+    }
+
+        //如果找不到，再从PATH环境变量中寻找
+    if(!is_found){
+      const char* path=getenv("PATH");
+      if(path==NULL){
+        perror("getenv: error");
+        return NULL;
+      }
+      char* path_copy=strdup(path);
+      char* saveptr;
+      char* token=strtok_r(path_copy,":",&saveptr);
+      while(token!=NULL){
+        char full_path[2*PATH_MAX];
+        snprintf(full_path,2*PATH_MAX,"%s/%s",token,cmd);
+        if(access(full_path,X_OK)==0){
+          is_found=true;
+          cmd=full_path;
+          break;
+        }
+        token=strtok_r(NULL,":",&saveptr);
+      }
+      free(path_copy);
+    }
+  }
+  char* true_path=malloc(strlen(cmd)+1);
+  if(true_path==NULL){
+    perror("malloc: error");
+    return NULL;
+  }
+  strcpy(true_path,cmd);
+  if(is_absulute||is_found){
+    return true_path;
+  }else{
+    free(true_path);
+    return NULL;
+  }
 }
 
 /* Looks up the built-in command, if it exists. */
@@ -144,133 +207,227 @@ int main(unused int argc, unused char* argv[]) {
       //应该先从当前目录下找可执行文件
       //如果找不到，再从PATH环境变量中找
       //如果还是找不到，报错
-      const char* redirection_input=NULL;
-      const char* redirection_output=NULL;
-      size_t redirection_input_index=0;
-      size_t redirection_output_index=0;
-      bool has_redirection_input=false;
-      bool has_redirection_output=false;
+      //对于管道来说 | 为分割符号,分割的每一块都可以有重定向
+      //管道的起始只能有input而不能有output
+      //管道的结束只能有output而不能有input
+      //中间的管道不能有input和output
+      size_t pipe_count=0;
+      size_t pipe_index[PIPE_MAX];
       size_t length=tokens_get_length(tokens);
+
       for(size_t i=0;i<length;++i){
         char *token=tokens_get_token(tokens,i);
-        if(strcmp(token,">")==0){
-          redirection_output=tokens_get_token(tokens,i+1);
-          redirection_output_index=i;
-          has_redirection_output=true;
-          if(redirection_output==NULL){
-            perror("redirection: error");
-            return -1;
-          }
-        }
-        if(strcmp(token,"<")==0){
-          redirection_input=tokens_get_token(tokens,i+1);
-          redirection_input_index=i;
-          has_redirection_input=true;
-          if(redirection_input==NULL){
-            perror("redirection: error");
-            return -1;
-          }
-        }
-        if(has_redirection_input&&has_redirection_output){
-          break;
+        if(strcmp(token,"|")==0){
+          pipe_index[pipe_count++]=i;
         }
       }
-      if(redirection_input_index!=0){
-        length-=2;
-      }
-      if(redirection_output_index!=0){
-        length-=2;
-      }
-      char pwd_path[PATH_MAX];
-      if(getcwd(pwd_path,PATH_MAX)==NULL){
-        perror("getcwd: error");
-        return -1;
-      }
-
-      char* args[length+1];
-      for(size_t i=0;i<length;i++){
-        args[i]=tokens_get_token(tokens,i);
-      }
-      args[length]=NULL;
-      bool is_absulute=false;
-      if(access(args[0],X_OK)==0){
-        is_absulute=true;
-      }
-      bool is_found=false;
-      if(!is_absulute){
-        //首先从当前目录下找可执行文件
-        char _full_path[2*PATH_MAX];
-        snprintf(_full_path,2*PATH_MAX,"%s/%s",pwd_path,args[0]);
-        if(access(_full_path,X_OK)==0){
-          is_found=true;
-          args[0]=_full_path;
-        }
-
-        //如果找不到，再从PATH环境变量中寻找
-        if(!is_found){
-          const char* path=getenv("PATH");
-          if(path==NULL){
-            perror("getenv: error");
-            return -1;
-          }
-          char* path_copy=strdup(path);
-          char* saveptr;
-          char* token=strtok_r(path_copy,":",&saveptr);
-          while(token!=NULL){
-            char full_path[2*PATH_MAX];
-            snprintf(full_path,2*PATH_MAX,"%s/%s",token,args[0]);
-            if(access(full_path,X_OK)==0){
-              is_found=true;
-              args[0]=full_path;
-              break;
-            }
-            token=strtok_r(NULL,":",&saveptr);
-          }
-          free(path_copy);
-        }
-      }
-      if(is_absulute||is_found){
-            pid_t pid=fork();
-            if(pid==0){
-
-              if(redirection_input!=NULL){
-                int fd_in=open(redirection_input,O_RDONLY);
-                if(fd_in==-1){
-                  perror("open: error");
-                  exit(1);
-                }
-                dup2(fd_in,STDIN_FILENO);
-                close(fd_in);
-              }
-              if(redirection_output!=NULL){
-                int fd_out=open(redirection_output,O_WRONLY|O_CREAT|O_TRUNC,0644);
-                if(fd_out==-1){
-                  perror("open: error");
-                  exit(1);
-                }
-                dup2(fd_out,STDOUT_FILENO);
-                close(fd_out);
-              }
-              execv(args[0],args);
-              perror("execv: error");
-              exit(1);
-            }else if(pid>0){
-              waitpid(pid,NULL,0);
-            }else{
-              perror("fork: error");
-              return -1;
-            }
+      pipe_index[pipe_count]=length;
+      size_t pre_pipe_index=0;
+      char *args[pipe_count+1][STRING_BUFFER_SIZE];
+      char *redirection_input=NULL;
+      char *redirection_output=NULL;
+      //此处是处理管道的
+      if(pipe_count==0){
+        size_t k=0;
+        for(size_t i=0;i<length;++i){
+          char* token=tokens_get_token(tokens,i);
+          if(strcmp(token,">")==0){
+            redirection_output=tokens_get_token(tokens,++i);
+          }else if(strcmp(token,"<")==0){
+            redirection_input=tokens_get_token(tokens,++i);
           }else{
-            printf("%s command not found\n",args[0]);
+            args[0][k++]=tokens_get_token(tokens,i);
           }
+        }
+        args[0][k]=NULL;
+      }else{
+        for(size_t i=0;i<pipe_count+1;++i){
+        size_t index=pipe_index[i];
+        size_t k=0;
+        for(size_t j=pre_pipe_index;j<index;++j){
+          char *token=tokens_get_token(tokens,j);
+          if(strcmp(token,"<")==0){
+            if(i!=0){
+              perror("redirection: error");
+              goto end_of_while;//这里的goto是为了不执行后面的代码,重新开始一个循环
+            }
+            redirection_input=tokens_get_token(tokens,++j);
+          }else if(strcmp(token,">")==0){
+            if(i!=pipe_count){
+              perror("redirection: error");
+              goto end_of_while;
+            }
+            redirection_output=tokens_get_token(tokens,++j);
+          }else{
+            args[i][k++]=token;
+          }
+        }
+        args[i][k]=NULL;
+        pre_pipe_index=index+1;
+      }
+      }
+      
+      // for(size_t i=0;i<length;++i){
+      //   char *token=tokens_get_token(tokens,i);
+      //   if(strcmp(token,">")==0){
+      //     redirection_output=tokens_get_token(tokens,i+1);
+      //     redirection_output_index=i;
+      //     has_redirection_output=true;
+      //     if(redirection_output==NULL){
+      //       perror("redirection: error");
+      //       return -1;
+      //     }
+      //   }
+      //   if(strcmp(token,"<")==0){
+      //     redirection_input=tokens_get_token(tokens,i+1);
+      //     redirection_input_index=i;
+      //     has_redirection_input=true;
+      //     if(redirection_input==NULL){
+      //       perror("redirection: error");
+      //       return -1;
+      //     }
+      //   }
+      //   if(has_redirection_input&&has_redirection_output){
+      //     break;
+      //   }
+      // }
+      // if(has_redirection_input){
+      //   length-=2;
+      // }
+      // if(has_redirection_output){
+      //   length-=2;
+      // }
+      int pipe_fd[pipe_count+1][2];//防止pipe_count为0时出现错误
+      for(size_t i=0;i<pipe_count;++i){
+        if(pipe(pipe_fd[i])==-1){
+          perror("pipe: error");
+          return -1;
+        }
+      }
+      pid_t pid[pipe_count+1];
+      // for(size_t i=0;i<length;i++){
+      //   args[i]=tokens_get_token(tokens,i);
+      // }
+      // args[length]=NULL;
+      for(size_t i=0;i<pipe_count+1;++i){
+        args[i][0]=find_true_path(args[i][0]);
+        if(args[i][0]==NULL){
+          printf("no such command\n");
+          for(size_t j=0;j<i;++j){
+            free(args[j][0]);//堆内存释放
+          }
+          goto end_of_while;
+        }
+      }
+
+      for(size_t i=0;i<pipe_count+1;++i){
+        pid[i]=fork();
+        if(pid[i]==0){
+          if(i==0){
+            if(redirection_input!=NULL){
+              int fd_in=open(redirection_input,O_RDONLY);
+              if(fd_in==-1){
+                perror("open: error");
+                exit(1);
+              }
+              dup2(fd_in,STDIN_FILENO);
+              close(fd_in);
+            }
+
+            if(redirection_output!=NULL){
+              int fd_out=open(redirection_output,O_WRONLY|O_CREAT|O_TRUNC,0644);
+              if(fd_out==-1){
+                perror("open: error");
+                exit(1);
+              }
+              dup2(fd_out,STDOUT_FILENO);
+              close(fd_out);
+            }
+            if(pipe_count!=0){
+              dup2(pipe_fd[i][1],STDOUT_FILENO);
+              //关闭管道的读端
+              // close(pipe_fd[i][0]);
+            }
+          }else if(i==pipe_count){
+            if(redirection_output!=NULL){
+              int fd_out=open(redirection_output,O_WRONLY|O_CREAT|O_TRUNC,0644);
+              if(fd_out==-1){
+                perror("open: error");
+                exit(1);
+              }
+              dup2(fd_out,STDOUT_FILENO);
+              close(fd_out);
+            }
+            dup2(pipe_fd[i-1][0],STDIN_FILENO);
+            //关闭管道的写端
+            // close(pipe_fd[i-1][1]);
+          }else{
+            dup2(pipe_fd[i-1][0],STDIN_FILENO);
+            dup2(pipe_fd[i][1],STDOUT_FILENO);
+            //关闭上一个管道的写端
+            // close(pipe_fd[i-1][1]);
+            //关闭当前管道的读端
+            // close(pipe_fd[i][0]);
+          }
+        for(size_t j=0;j<pipe_count;++j){
+          if(j!=i-1)close(pipe_fd[j][0]);
+          if(j!=i)close(pipe_fd[j][1]);
+        }
+          execv(args[i][0],args[i]);
+          perror("execv: error");
+          exit(1);
+        }else if(pid[i]>0){
+          waitpid(pid[i],NULL,0);
+        }else{
+          perror("fork: error");
+          return -1;
+        }
+      }
+
+            // pid_t pid=fork();
+            // if(pid==0){
+
+            //   if(redirection_input!=NULL){
+            //     int fd_in=open(redirection_input,O_RDONLY);
+            //     if(fd_in==-1){
+            //       perror("open: error");
+            //       exit(1);
+            //     }
+            //     dup2(fd_in,STDIN_FILENO);
+            //     close(fd_in);
+            //   }
+            //   if(redirection_output!=NULL){
+            //     int fd_out=open(redirection_output,O_WRONLY|O_CREAT|O_TRUNC,0644);
+            //     if(fd_out==-1){
+            //       perror("open: error");
+            //       exit(1);
+            //     }
+            //     dup2(fd_out,STDOUT_FILENO);
+            //     close(fd_out);
+            //   }
+            //   execv(args[0],args);
+            //   perror("execv: error");
+            //   exit(1);
+            // }else if(pid>0){
+            //   waitpid(pid,NULL,0);
+            // }else{
+            //   perror("fork: error");
+            //   return -1;
+            // }
+      for(size_t i = 0;i<pipe_count+1;++i){
+        free(args[i][0]);
+      }
     }
 
+    
+    end_of_while:
     if (shell_is_interactive)
       /* Please only print shell prompts when standard input is not a tty */
       fprintf(stdout, "%d: ", ++line_num);
 
     /* Clean up memory */
     tokens_destroy(tokens);
+
   }
 
   return 0;
