@@ -188,6 +188,7 @@ void init_shell() {
 
     /* Saves the shell's process id */
     shell_pgid = getpid();
+    setpgid(shell_pgid, shell_pgid);
 
     /* Take control of the terminal */
     tcsetpgrp(shell_terminal, shell_pgid);
@@ -200,7 +201,7 @@ void init_shell() {
 int main(unused int argc, unused char* argv[]) {
   init_shell();
   disable_echoctl();
-  signal(SIGTSTP,SIG_IGN);
+  signal(SIGTSTP,SIG_IGN);//忽略ctrl+z信号
   static char line[4096];
   // int line_num = 0;
 
@@ -318,8 +319,8 @@ int main(unused int argc, unused char* argv[]) {
           //   perror("setsid: error");
           //   exit(1);
           // }
-
-          // signal(SIGTSTP,SIG_DFL);
+          // tcsetpgrp(STDIN_FILENO,getpid());
+          signal(SIGTSTP,SIG_DFL);
           if(i==0){
             if(redirection_input!=NULL){
               int fd_in=open(redirection_input,O_RDONLY);
@@ -369,6 +370,7 @@ int main(unused int argc, unused char* argv[]) {
           // waitpid(pid[i],NULL,0);
           // setpgid(pid[i],pid[i]);
           // tcsetpgrp(STDIN_FILENO,pid[i]);
+
         }else{
           perror("fork: error");
           return -1;
@@ -376,11 +378,23 @@ int main(unused int argc, unused char* argv[]) {
 
 
       }
-
+      // if(pid[0]!=0){
+      //   if(tcsetpgrp(STDIN_FILENO,pid[0])<0){
+      //     perror("tcgetpgrp: error");
+      //     return -1;
+      //   }
+      // }
+      
       for(size_t i=0;i<pipe_count+1;++i){
-        waitpid(pid[i],NULL,0);
+        waitpid(pid[i],NULL,WUNTRACED);
       }
-      tcgetpgrp(STDIN_FILENO);
+      if(tcsetpgrp(STDIN_FILENO,shell_pgid)<0){
+        perror("tcsetpgrp: error");
+        // return -1;
+        // printf("tcsetpgrp: error\n");
+      }
+      // printf("22\n");
+      // printf("s\n");
       // signal(SIGTSTP,SIG_IGN);
       //fork实际上是复制了父进程的所有文件描述符，不会影响到父进程
       //关闭父进程的管道文件描述符
@@ -392,8 +406,6 @@ int main(unused int argc, unused char* argv[]) {
         free(args[i][0]);
       }
 
-      //收回终端控制权
-      // tcsetpgrp(0,getpid());
     }
 
     if(getcwd(current_dir, PATH_MAX)==NULL){
